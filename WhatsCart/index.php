@@ -93,6 +93,11 @@ $js_trans = [
                 <div class="p-4 flex-1 flex flex-col">
                     <h3 class="font-bold text-gray-800 mb-1 text-sm md:text-base line-clamp-2"><?= e($p['title']) ?></h3>
                     
+                    <?php if(!empty($p['description'])): ?>
+                        <p class="text-xs text-gray-500 mb-2 line-clamp-2 leading-relaxed">
+                            <?= e($p['description']) ?>
+                        </p>
+                    <?php endif; ?>
                     <div class="mt-auto flex items-center justify-between pt-2">
                         <span class="text-emerald-600 font-bold text-lg"><?= number_format($p['price'], 2) ?> <small class="text-xs"><?= $currency ?></small></span>
                         
