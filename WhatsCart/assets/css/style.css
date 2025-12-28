@@ -1,0 +1,81 @@
+/* استيراد الخطوط (عربي + إنجليزي) */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary-color: #10B981; /* Emerald 500 */
+    --hover-color: #059669;   /* Emerald 600 */
+}
+
+/* ضبط الخطوط حسب اللغة */
+html[lang="ar"] body {
+    font-family: 'Cairo', sans-serif;
+}
+html[lang="en"] body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* تحسين شكل التمرير (Scrollbar) */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #f1f1f1; 
+}
+::-webkit-scrollbar-thumb {
+    background: #c1c1c1; 
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8; 
+}
+
+/* تأثيرات الظهور */
+.fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* تنسيقات إضافية للكروت */
+.product-card {
+    transition: all 0.3s ease;
+    border: 1px solid #f3f4f6;
+}
+.product-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    border-color: var(--primary-color);
+}
+
+/* زر الواتساب العائم (اختياري) */
+.whatsapp-float {
+    position: fixed;
+    bottom: 20px;
+    right: 20px; /* سيتغير تلقائياً في الـ RTL */
+    background-color: #25d366;
+    color: white;
+    width: 60px;
+    height: 60px;
+    border-radius: 50px;
+    text-align: center;
+    font-size: 30px;
+    box-shadow: 2px 2px 3px #999;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s;
+}
+.whatsapp-float:hover {
+    transform: scale(1.1);
+}
+
+/* إصلاح اتجاهات RTL في Tailwind إذا لزم الأمر */
+[dir="rtl"] .space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-x-reverse: 0;
+    margin-right: calc(0.25rem * var(--tw-space-x-reverse));
+    margin-left: calc(0.25rem * calc(1 - var(--tw-space-x-reverse)));
+}
