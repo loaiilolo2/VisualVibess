@@ -7,58 +7,93 @@ if(!isLoggedIn()) redirect('login.php');
 
 $error = '';
 $success = '';
+$editMode = false;
+$productToEdit = [];
 
 // -----------------------------------------------------------
-// 1. معالجة طلب إضافة منتج (مع حماية رفع الصور)
+// 1. معالجة طلب التعديل (تعبئة النموذج)
 // -----------------------------------------------------------
-if(isset($_POST['add'])) {
+if(isset($_GET['edit'])) {
+    $id = $_GET['edit'];
+    $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
+    $stmt->execute([$id]);
+    $productToEdit = $stmt->fetch();
+    
+    if($productToEdit) {
+        $editMode = true;
+    }
+}
+
+// -----------------------------------------------------------
+// 2. معالجة طلب الحفظ (إضافة جديد OR تحديث موجود)
+// -----------------------------------------------------------
+if(isset($_POST['save_product'])) {
+    
     $title = trim($_POST['title']);
     $price = $_POST['price'];
+    $description = isset($_POST['description']) ? trim($_POST['description']) : '';
+    
+    // هل نحن في وضع التحديث أم الإضافة؟
+    $isUpdate = isset($_POST['product_id']) && !empty($_POST['product_id']);
     
     // إعدادات رفع الصورة
-    $imgName = 'default.png'; // الصورة الافتراضية
+    $imgName = $isUpdate ? $_POST['old_image'] : 'default.png'; // القيمة الافتراضية
     $uploadError = false;
 
-    // هل قام المدير برفع ملف؟
+    // هل قام المدير برفع صورة جديدة؟
     if(!empty($_FILES['image']['name'])) {
         $fileName = $_FILES['image']['name'];
         $fileTmp  = $_FILES['image']['tmp_name'];
-        $fileSize = $_FILES['image']['size'];
         $fileExt  = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-
-        // قائمة الامتدادات المسموحة فقط
         $allowedExt = ['jpg', 'jpeg', 'png', 'webp'];
 
-        // التحقق من الامتداد
         if(in_array($fileExt, $allowedExt)) {
-            // التحقق من محتوى الملف (MIME Type) لمنع الملفات الخبيثة
             if(getimagesize($fileTmp)) {
-                // إنشاء اسم عشوائي للصورة
                 $newFileName = uniqid('prod_', true) . '.' . $fileExt;
                 $destination = "../assets/uploads/" . $newFileName;
 
                 if(move_uploaded_file($fileTmp, $destination)) {
+                    // إذا كان تحديث ورفعنا صورة جديدة، نحذف القديمة
+                    if($isUpdate && $_POST['old_image'] !== 'default.png' && file_exists("../assets/uploads/" . $_POST['old_image'])) {
+                        unlink("../assets/uploads/" . $_POST['old_image']);
+                    }
                     $imgName = $newFileName;
                 } else {
-                    $error = "فشل نقل الصورة إلى السيرفر. تأكد من صلاحيات مجلد uploads.";
+                    $error = "فشل نقل الصورة إلى السيرفر.";
                     $uploadError = true;
                 }
             } else {
-                $error = "الملف المرفوع تالف أو ليس صورة صالحة.";
+                $error = "الملف المرفوع تالف.";
                 $uploadError = true;
             }
         } else {
-            $error = "نوع الملف غير مدعوم. المسموح فقط: JPG, PNG, WEBP";
+            $error = "نوع الصورة غير مدعوم.";
             $uploadError = true;
         }
     }
 
-    // الحفظ في قاعدة البيانات إذا لم يكن هناك خطأ في الرفع
+    // التنفيذ في قاعدة البيانات
     if(!$uploadError) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO products (title, price, image) VALUES (?, ?, ?)");
-            $stmt->execute([$title, $price, $imgName]);
-            $success = "تم إضافة المنتج بنجاح!";
+            if($isUpdate) {
+                // --- كود التحديث (UPDATE) ---
+                $id = $_POST['product_id'];
+                $stmt = $pdo->prepare("UPDATE products SET title=?, price=?, description=?, image=? WHERE id=?");
+                $stmt->execute([$title, $price, $description, $imgName, $id]);
+                $success = "تم تحديث بيانات المنتج بنجاح!";
+                
+                // الخروج من وضع التعديل بعد الحفظ
+                $editMode = false;
+                $productToEdit = [];
+                // تفريغ الرابط من ?edit=...
+                echo "<script>window.history.replaceState(null, null, window.location.pathname);</script>";
+                
+            } else {
+                // --- كود الإضافة (INSERT) ---
+                $stmt = $pdo->prepare("INSERT INTO products (title, price, description, image) VALUES (?, ?, ?, ?)");
+                $stmt->execute([$title, $price, $description, $imgName]);
+                $success = "تم إضافة المنتج الجديد بنجاح!";
+            }
         } catch(PDOException $e) {
             $error = "خطأ في قاعدة البيانات: " . $e->getMessage();
         }
@@ -66,33 +101,26 @@ if(isset($_POST['add'])) {
 }
 
 // -----------------------------------------------------------
-// 2. معالجة طلب حذف منتج
+// 3. معالجة طلب حذف منتج
 // -----------------------------------------------------------
 if(isset($_GET['delete'])) {
     $id = $_GET['delete'];
-    
-    // جلب بيانات المنتج لحذف صورته
     $stmt = $pdo->prepare("SELECT image FROM products WHERE id = ?");
     $stmt->execute([$id]);
     $product = $stmt->fetch();
 
     if($product) {
-        // حذف الصورة من السيرفر (إذا لم تكن هي الصورة الافتراضية)
         if($product['image'] !== 'default.png' && file_exists("../assets/uploads/" . $product['image'])) {
             unlink("../assets/uploads/" . $product['image']);
         }
-
-        // حذف السجل من قاعدة البيانات
         $delStmt = $pdo->prepare("DELETE FROM products WHERE id = ?");
         $delStmt->execute([$id]);
-        
-        // إعادة تحميل الصفحة لتحديث القائمة
         redirect('products.php');
     }
 }
 
 // -----------------------------------------------------------
-// 3. جلب كافة المنتجات للعرض
+// 4. جلب كافة المنتجات للعرض
 // -----------------------------------------------------------
 $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
 ?>
@@ -139,12 +167,14 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
         <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
             <div>
                 <h1 class="text-3xl font-bold text-gray-800">المنتجات</h1>
-                <p class="text-gray-500 text-sm mt-1">إدارة منتجات المتجر وإضافة صورها</p>
+                <p class="text-gray-500 text-sm mt-1">إدارة المنتجات، التعديل عليها، وإضافة صورها</p>
             </div>
-            <button onclick="document.getElementById('addProductForm').classList.toggle('hidden')" 
+            <?php if(!$editMode): ?>
+            <button onclick="document.getElementById('productFormBlock').classList.toggle('hidden')" 
                     class="bg-gray-900 hover:bg-black text-white px-5 py-3 rounded-xl font-bold shadow-lg transition flex items-center gap-2 w-full md:w-auto justify-center">
                 <span>+ إضافة منتج جديد</span>
             </button>
+            <?php endif; ?>
         </div>
 
         <?php if(!empty($error)): ?>
@@ -161,32 +191,58 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
             </div>
         <?php endif; ?>
         
-        <div id="addProductForm" class="hidden bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-8 transition-all duration-300 animate-fade-in">
-            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">بيانات المنتج الجديد</h3>
+        <div id="productFormBlock" class="<?= $editMode ? '' : 'hidden' ?> bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-8 transition-all duration-300 animate-fade-in">
+            <h3 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">
+                <?= $editMode ? 'تعديل بيانات المنتج' : 'بيانات المنتج الجديد' ?>
+            </h3>
+            
             <form method="POST" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 
+                <?php if($editMode): ?>
+                    <input type="hidden" name="product_id" value="<?= $productToEdit['id'] ?>">
+                    <input type="hidden" name="old_image" value="<?= $productToEdit['image'] ?>">
+                <?php endif; ?>
+
                 <div class="md:col-span-5">
                     <label class="block text-sm font-semibold text-gray-600 mb-2">اسم المنتج</label>
-                    <input type="text" name="title" required placeholder="مثال: سماعة بلوتوث"
+                    <input type="text" name="title" required 
+                           value="<?= $editMode ? e($productToEdit['title']) : '' ?>"
+                           placeholder="مثال: سماعة بلوتوث"
                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-gray-50 transition">
                 </div>
                 
                 <div class="md:col-span-3">
                     <label class="block text-sm font-semibold text-gray-600 mb-2">السعر</label>
-                    <input type="number" step="0.01" name="price" required placeholder="0.00"
+                    <input type="number" step="0.01" name="price" required 
+                           value="<?= $editMode ? $productToEdit['price'] : '' ?>"
+                           placeholder="0.00"
                            class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-gray-50 transition">
                 </div>
                 
                 <div class="md:col-span-4">
-                    <label class="block text-sm font-semibold text-gray-600 mb-2">الصورة (JPG, PNG)</label>
+                    <label class="block text-sm font-semibold text-gray-600 mb-2">
+                        <?= $editMode ? 'تغيير الصورة (اتركها فارغة للاحتفاظ بالقديمة)' : 'الصورة (JPG, PNG)' ?>
+                    </label>
                     <input type="file" name="image" accept=".jpg,.jpeg,.png,.webp"
                            class="block w-full text-sm text-gray-500 file:ml-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer">
                 </div>
+
+                <div class="md:col-span-12">
+                    <label class="block text-sm font-semibold text-gray-600 mb-2">وصف المنتج</label>
+                    <textarea name="description" rows="3" placeholder="اكتب تفاصيل المنتج هنا..." 
+                              class="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none bg-gray-50 transition"><?= $editMode ? e($productToEdit['description']) : '' ?></textarea>
+                </div>
                 
-                <div class="md:col-span-12 mt-2">
-                    <button type="submit" name="add" class="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition shadow-md">
-                        حفظ المنتج
+                <div class="md:col-span-12 mt-2 flex gap-3">
+                    <button type="submit" name="save_product" class="flex-1 bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 transition shadow-md">
+                        <?= $editMode ? 'تحديث البيانات' : 'حفظ المنتج' ?>
                     </button>
+                    
+                    <?php if($editMode): ?>
+                        <a href="products.php" class="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition">
+                            إلغاء
+                        </a>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -197,6 +253,7 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
                     <tr>
                         <th class="p-5 text-sm font-bold text-gray-500">الصورة</th>
                         <th class="p-5 text-sm font-bold text-gray-500">اسم المنتج</th>
+                        <th class="p-5 text-sm font-bold text-gray-500">الوصف</th>
                         <th class="p-5 text-sm font-bold text-gray-500">السعر</th>
                         <th class="p-5 text-sm font-bold text-gray-500">إجراء</th>
                     </tr>
@@ -211,21 +268,30 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
                                 </div>
                             </td>
                             <td class="p-5 font-bold text-gray-800"><?= e($p['title']) ?></td>
+                            <td class="p-5 text-gray-500 text-sm max-w-xs truncate">
+                                <?= !empty($p['description']) ? mb_substr(e($p['description']), 0, 40) . '...' : '-' ?>
+                            </td>
                             <td class="p-5 text-emerald-600 font-bold text-lg"><?= number_format($p['price'], 2) ?></td>
                             <td class="p-5">
-                                <a href="?delete=<?= $p['id'] ?>" onclick="return confirm('هل أنت متأكد من رغبتك في حذف هذا المنتج؟ سيتم حذف الصورة أيضاً.')" 
-                                   class="text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-lg transition text-sm font-bold flex items-center gap-1 w-fit">
-                                   <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                    حذف
-                                </a>
+                                <div class="flex items-center gap-2">
+                                    <a href="?edit=<?= $p['id'] ?>" class="text-blue-500 hover:text-blue-700 hover:bg-blue-50 px-3 py-2 rounded-lg transition text-sm font-bold flex items-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                        تعديل
+                                    </a>
+                                    
+                                    <a href="?delete=<?= $p['id'] ?>" onclick="return confirm('هل أنت متأكد من الحذف؟')" 
+                                       class="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg transition text-sm font-bold flex items-center gap-1">
+                                       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                       حذف
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="4" class="p-10 text-center text-gray-400">
-                                <svg class="w-12 h-12 mx-auto mb-2 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-                                لا توجد منتجات حالياً. ابدأ بإضافة منتجك الأول من الزر بالأعلى.
+                            <td colspan="5" class="p-10 text-center text-gray-400">
+                                لا توجد منتجات حالياً.
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -237,7 +303,6 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll();
 </div>
 
 <style>
-    /* أنيميشن بسيط لظهور النموذج */
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .animate-fade-in { animation: fadeIn 0.3s ease-out; }
 </style>
